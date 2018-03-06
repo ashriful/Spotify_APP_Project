@@ -3,7 +3,7 @@
 
 # Import All Neccesary Modules 
 import json
-from flask import Flask, request, redirect, g, render_template
+from flask import Flask, request, redirect, g, render_template, session
 import requests
 import base64
 import urllib
@@ -49,13 +49,19 @@ auth_query_parameters = {
 }
 
 
+app.secret_key = "something-from-os.urandom(24)"
+
+@app.before_request
+def session_management():
+    # make the session last indefinitely until it is cleared
+    session.permanent = True
+
 @app.route("/")
 def index():
     # Authorization
     url_args = "&".join(["{}={}".format(key,urllib.parse.quote(val)) for key,val in auth_query_parameters.items()])
-    auth_url = "{}/?{}".format(SPOTIFY_AUTH_URL, url_args)
+    auth_url  = "{}/?{}".format(SPOTIFY_AUTH_URL, url_args)
     return redirect(auth_url)
-
 
 @app.route("/callback/q")
 def callback():
@@ -80,15 +86,28 @@ def callback():
     token_type = response_data["token_type"]
     expires_in = response_data["expires_in"]
 
+    session.clear()
+
+
+    session['content'] = {
+    "Authorization":"Bearer {}".format(access_token),
+    "Content-Type": "application/json"
+    }
+
+   
     # Use the access token to access Spotify API
     authorization_header = {"Authorization":"Bearer {}".format(access_token)}
+    session['header'] = authorization_header
+    session['token'] = access_token
+
 
     # Get profile data
     # Follow link: https://developer.spotify.com/web-api/get-current-users-profile/
     user_profile_api_endpoint = "{}/me".format(SPOTIFY_API_URL)
     profile_response = requests.get(user_profile_api_endpoint, headers=authorization_header)
     profile_data = json.loads(profile_response.text)
-   
+
+    session['profile'] = profile_data['href']
  
     # Get user playlist data
     # Follow link: https://developer.spotify.com/web-api/get-list-users-playlists/
@@ -98,14 +117,33 @@ def callback():
 
     # Pick playlist from playlist_data 
     # FIX THIS. IT ONLY DOES THE FIRST PLAYLIST
-    href_playlist = playlist_data['items'][0]['id']
 
-    # Grab tracks from playlist 
+    #href_playlist = playlist_data['items'][0]['id']
+
+    href_playlist_names = []
+    href_playlist_id = []
+    for items in playlist_data['items']:
+       href_playlist_names.append(items['name'])
+       href_playlist_id.append(items['id'])
+    session['playlist'] = dict(zip(href_playlist_names, href_playlist_id))
+
+    return render_template("playlist_choice.html", names = href_playlist_names)
+
+@app.route('/receive_id', methods=['POST'])
+def do_something_with_id():
+
+    playlist_name = request.form['submit']
+    href_playlist = session['playlist']
+    playlist_pick = href_playlist[str(playlist_name)]
+
+    # Grab tracks from playlist   
     # Follow link: https://developer.spotify.com/web-api/get-playlist/
-    playlist_track_api_endpoint =  "{}/playlists/{}".format(profile_data["href"],href_playlist)
-    playlists_track_response = requests.get(playlist_track_api_endpoint, headers=authorization_header)
+    
+    playlist_track_api_endpoint =  "{}/playlists/{}".format(session['profile'],playlist_pick)
+    playlists_track_response = requests.get(playlist_track_api_endpoint, headers=session['header'])
     playlist_track_data = json.loads(playlists_track_response.text) 
 
+    tracks = playlist_track_data['tracks']['items']
     # Create list of track id's using for loop
     track_names= []
     track_id_dict = []
@@ -114,13 +152,15 @@ def callback():
        track_names.append(items['track']['name'])
        track_id_dict.append(items['track']['id'])
 
+
+
     # Add commas to input into request
     track_id = ",".join(track_id_dict)
 
     # Find Track Information from Track ID's
     # Follow link: https://developer.spotify.com/web-api/get-several-audio-features/ 
     track_features_endpoint =  "https://api.spotify.com/v1/audio-features/?ids={}".format(track_id)
-    track_features_response = requests.get(track_features_endpoint, headers=authorization_header)
+    track_features_response = requests.get(track_features_endpoint, headers=session['header'])
     track_features = json.loads(track_features_response.text) 
 
     # Make Data Frame with Track Features 
@@ -130,7 +170,7 @@ def callback():
         d.append(feature)
     df = pd.DataFrame(d)
 
-    # Manipulate data frame to divide playlist by energy 
+    # Manipulate data frame to divide playlist by energy  
     # Low energy make it for from low to high 
     # High energy make it high to low 
     # Combine into one list 
@@ -146,47 +186,51 @@ def callback():
     id_list2 = list2['id'].tolist()
 
     # Combine the lists and add comma for input
-    id_list_combo = id_list1 + id_list2
-    id_list = ",".join(id_list_combo)
+    session['ids'] = id_list1 + id_list2
+    id_list = ",".join(session['ids'])
 
     # Check what the audio features of the new list is 
     id_list_features_endpoint =  "https://api.spotify.com/v1/audio-features/?ids={}".format(id_list)
-    id_list_features_response = requests.get(id_list_features_endpoint, headers=authorization_header)
+    id_list_features_response = requests.get(id_list_features_endpoint, headers=session['header'])
     id_list_features = json.loads(id_list_features_response.text) 
 
-    # Name playlist
-    # CHANGE THIS. TAKE IN USER INPUT
-    name_playlist = json.dumps({
-        'name' : "Math"
-    })
-    content_type = {
-    "Authorization":"Bearer {}".format(access_token),
-    "Content-Type": "application/json"
-    }
+    return render_template("name_playlist.html")
 
+@app.route('/create_playlist', methods=['POST','GET'])
+def create_playlist():
+
+    if request.method == 'POST':
+      result = request.form
+
+
+    create_playlist_data = json.dumps({
+        'name' : str(result['fname'])
+        })
     # Create playlist 
     # Follow link: https://developer.spotify.com/web-api/create-playlist/
-    create_playlist_endpoint = "{}/playlists".format(profile_data["href"])
-    create_playlist_response = requests.post(create_playlist_endpoint, data = create_playlist_data, headers= content_type)
+    create_playlist_endpoint = "{}/playlists".format(session['profile'])
+    create_playlist_response = requests.post(create_playlist_endpoint, data = create_playlist_data, headers= session['content'])
     create_playlist = json.loads(create_playlist_response.text) 
 
 
     # In order to add our new arranged tracks to the new playlist we need to format 
-
+    
     # Make list of track uri's and format them for the input 
-    TRACK_URI_LIST = []
-    for track_id in id_list:
+    TRACK_URI_LIST = [] 
+    for track_id in session['ids']:
        TRACK_URI_LIST.append("spotify%3Atrack%3A{}".format(track_id))
-       TRACK_URI = ",".join(TRACK_URI)
+       TRACK_URI = ",".join(TRACK_URI_LIST)
 
     # Add tracks to the playlist 
-    # Follow link: https://developer.spotify.com/web-api/create-playlist/
+    # Follow link: https://developer.spotify.com/web-api/add-tracks-to-playlist/
     add_tracks_playlist_endpoint = "{}/tracks?uris={}".format(create_playlist['href'],TRACK_URI)
-    add_tracks_playlist = requests.post(add_tracks_playlist_endpoint, headers= authorization_header)
+    add_tracks_playlist = requests.post(add_tracks_playlist_endpoint, headers= session['header'])
     add_tracks_playlist_test = add_tracks_playlist.status_code
-
     
-    return render_template("index.html",sorted_array= add_tracks_playlist_test)
+
+    return render_template("index.html")
+
+
 
 if __name__ == "__main__":
    app.run(debug=True,port=PORT)
