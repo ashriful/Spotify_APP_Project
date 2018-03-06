@@ -1,0 +1,40 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    
+    <!-- FOR THE CURIOUS: This site was made by @thebarrytone. Don't tell my mom. -->
+    
+    <title>This App</title>
+</head>
+
+
+<body>
+    <header>
+        <center><h1>Dulla's Spotify App</h1></center>
+        <center><aside>Rearrange your playlist into a bell curve</aside></center>
+    </header>
+
+    <center><h2>Start off by picking the playlist you want to rearrange</h2></center>
+
+<form action="/receive_id" method="POST">
+{% for name in names %}
+<center><button onclick = "give_id_to_server({{name}})" name="submit" value = '{{name}}'>{{name}}</button></center>
+{% endfor %}
+</form>
+
+<script>
+function give_id_to_server(name) {
+    $.ajax({
+            type: 'POST',
+            url: 'http://http://127.0.0.1:8888//receive_id',
+            data: name
+        });
+}
+</script>
+
+</body>
+
+</html>

@@ -1,0 +1,37 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    
+    <!-- FOR THE CURIOUS: This site was made by @thebarrytone. Don't tell my mom. -->
+    
+    <title>This App</title>
+<script>
+function give_id_to_server() {
+    $.ajax({
+            type: 'POST',
+            url: 'http://http://127.0.0.1:8888//receive_id',
+            data: name
+        });
+}
+</script>
+</head>
+
+<body>
+ <header>
+     <center><h1>Dulla's Spotify App</h1></center>
+     <center><aside>Rearrange your playlist into a bell curve</aside></center>
+ </header>
+
+  <center><h2>Now name your new playlist</h2></center>
+
+<center><form name="myForm" action="/create_playlist"
+onsubmit="give_id_to_server()" method="POST">
+Name: <input type="text" name="fname">
+<input type="submit" value="Submit">
+</form></center>c
+
+</body>
+</html>
